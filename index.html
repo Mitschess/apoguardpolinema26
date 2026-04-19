@@ -266,6 +266,40 @@
     </main>
 </div><!-- end app-page -->
 
+<!-- ═══════════════ MODAL SET PASSWORD (INVITE / RESET) ═══════════════ -->
+<div id="modal-set-password" class="modal-overlay" style="display:none;">
+    <div class="modal-card">
+        <div class="modal-header">
+            <i data-lucide="shield-check" style="width:28px;height:28px;color:var(--primary)"></i>
+            <h3 id="set-password-title">Buat Password Baru</h3>
+        </div>
+        <p id="set-password-subtitle" style="color:var(--text-muted);font-size:0.875rem;margin-bottom:16px;line-height:1.5;">
+            Silakan buat password untuk login berikutnya.
+        </p>
+        <div id="set-password-alert" class="login-alert" style="display:none;margin-bottom:12px;"></div>
+        <div class="form-group" style="margin-bottom:16px;">
+            <label for="new-password">Password Baru</label>
+            <div class="input-with-icon">
+                <i data-lucide="lock"></i>
+                <input type="password" id="new-password" placeholder="Minimal 6 karakter">
+            </div>
+        </div>
+        <div class="form-group" style="margin-bottom:20px;">
+            <label for="confirm-password">Konfirmasi Password</label>
+            <div class="input-with-icon">
+                <i data-lucide="lock-keyhole"></i>
+                <input type="password" id="confirm-password" placeholder="Ulangi password baru">
+            </div>
+        </div>
+        <button id="btn-set-password-save" class="btn btn-primary" style="width:100%;">
+            <i data-lucide="save"></i> Simpan Password
+        </button>
+        <p style="text-align:center;font-size:0.75rem;color:var(--text-muted);margin-top:12px;">
+            ⚠️ Wajib diisi. Tanpa password, Anda tidak bisa login kembali setelah logout.
+        </p>
+    </div>
+</div>
+
 <script src="script.js"></script>
 <script>lucide.createIcons();</script>
 </body>

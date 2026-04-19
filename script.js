@@ -27,10 +27,51 @@ async function initAuth () {
     showLogin()
   }
 
-  sb.auth.onAuthStateChange((_event, session) => {
-    if (session) showApp(session.user)
-    else         showLogin()
+  sb.auth.onAuthStateChange((event, session) => {
+    if (event === 'PASSWORD_RECOVERY') {
+      // User klik link reset password dari email
+      showLogin()
+      showModalSetPassword('reset')
+      return
+    }
+
+    if (event === 'SIGNED_IN' && session) {
+      // Deteksi user dari invite link (belum pernah login sebelumnya)
+      const isFromInvite = session.user.invited_at &&
+        (!session.user.last_sign_in_at ||
+          new Date(session.user.last_sign_in_at) - new Date(session.user.invited_at) < 5000)
+
+      if (isFromInvite) {
+        showApp(session.user)
+        showModalSetPassword('invite')
+        return
+      }
+      showApp(session.user)
+      return
+    }
+
+    if (!session) showLogin()
   })
+}
+
+function showModalSetPassword (mode = 'invite') {
+  const modal   = document.getElementById('modal-set-password')
+  const title   = document.getElementById('set-password-title')
+  const subtitle = document.getElementById('set-password-subtitle')
+
+  if (mode === 'invite') {
+    title.textContent   = '🔐 Buat Password Baru'
+    subtitle.textContent = 'Selamat datang! Anda login pertama kali via undangan. Silakan buat password untuk login berikutnya.'
+  } else {
+    title.textContent   = '🔑 Reset Password'
+    subtitle.textContent = 'Masukkan password baru Anda.'
+  }
+
+  document.getElementById('new-password').value    = ''
+  document.getElementById('confirm-password').value = ''
+  document.getElementById('set-password-alert').style.display = 'none'
+  modal.style.display = 'flex'
+  lucide.createIcons()
 }
 
 function showLogin () {
@@ -101,6 +142,65 @@ document.getElementById('btn-logout').addEventListener('click', doLogout)
 // Tombol Logout (mobile topbar)
 const btnLogoutMobile = document.getElementById('btn-logout-mobile')
 if (btnLogoutMobile) btnLogoutMobile.addEventListener('click', doLogout)
+
+// ── Modal Set Password (Invite / Reset) ──
+document.getElementById('btn-set-password-save').addEventListener('click', async () => {
+  const newPass     = document.getElementById('new-password').value
+  const confirmPass = document.getElementById('confirm-password').value
+  const alertEl     = document.getElementById('set-password-alert')
+
+  alertEl.style.display = 'none'
+
+  if (!newPass || !confirmPass) {
+    alertEl.textContent = 'Semua field wajib diisi.'
+    alertEl.style.display = 'block'
+    alertEl.style.background = 'var(--danger-bg)'
+    alertEl.style.color = '#991b1b'
+    return
+  }
+
+  if (newPass.length < 6) {
+    alertEl.textContent = 'Password minimal 6 karakter.'
+    alertEl.style.display = 'block'
+    alertEl.style.background = 'var(--danger-bg)'
+    alertEl.style.color = '#991b1b'
+    return
+  }
+
+  if (newPass !== confirmPass) {
+    alertEl.textContent = 'Password dan konfirmasi tidak cocok.'
+    alertEl.style.display = 'block'
+    alertEl.style.background = 'var(--danger-bg)'
+    alertEl.style.color = '#991b1b'
+    return
+  }
+
+  const btn = document.getElementById('btn-set-password-save')
+  btn.disabled  = true
+  btn.innerHTML = '<i data-lucide="loader-2"></i> Menyimpan...'
+  lucide.createIcons()
+
+  const { error } = await sb.auth.updateUser({ password: newPass })
+
+  btn.disabled  = false
+  btn.innerHTML = '<i data-lucide="save"></i> Simpan Password'
+  lucide.createIcons()
+
+  if (error) {
+    alertEl.textContent = 'Gagal menyimpan: ' + error.message
+    alertEl.style.display = 'block'
+    alertEl.style.background = 'var(--danger-bg)'
+    alertEl.style.color = '#991b1b'
+  } else {
+    alertEl.textContent = '✅ Password berhasil disimpan! Gunakan password ini untuk login berikutnya.'
+    alertEl.style.display = 'block'
+    alertEl.style.background = 'var(--success-bg)'
+    alertEl.style.color = '#065f46'
+    setTimeout(() => {
+      document.getElementById('modal-set-password').style.display = 'none'
+    }, 2500)
+  }
+})
 
 // ── Lupa Password ──
 document.getElementById('btn-forgot-password').addEventListener('click', () => {

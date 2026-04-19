@@ -20,41 +20,53 @@ const DAYS_LIMIT = 7
 //  AUTH — LOGIN / LOGOUT
 // ════════════════════════════════════════════════
 async function initAuth () {
-  // Cek URL hash — Supabase sisipkan type=invite atau type=recovery di URL
-  const hashParams = new URLSearchParams(window.location.hash.replace('#', ''))
-  let urlType      = hashParams.get('type') // 'invite' | 'recovery' | null
+  // Cek URL hash — Supabase sisipkan access_token + type di hash
+  const hashParams   = new URLSearchParams(window.location.hash.replace('#', ''))
+  const accessToken  = hashParams.get('access_token')
+  const refreshToken = hashParams.get('refresh_token')
+  const urlType      = hashParams.get('type') // 'invite' | 'recovery' | null
 
-  // Bersihkan hash dari URL tanpa reload
-  if (urlType) history.replaceState(null, '', window.location.pathname)
+  // Kalau ada token di URL (dari link email), set session dulu
+  if (accessToken && refreshToken) {
+    history.replaceState(null, '', window.location.pathname)
+    const { error } = await sb.auth.setSession({ access_token: accessToken, refresh_token: refreshToken })
+    if (error) {
+      console.error('setSession error:', error)
+      showLogin()
+      return
+    }
 
+    // Setelah session valid, tampilkan modal sesuai tipe
+    const { data: { session } } = await sb.auth.getSession()
+    if (session) {
+      if (urlType === 'recovery') {
+        showLogin()
+        setTimeout(() => showModalSetPassword('reset'), 200)
+      } else {
+        // invite atau signup
+        showApp(session.user)
+        setTimeout(() => showModalSetPassword('invite'), 400)
+      }
+    } else {
+      showLogin()
+    }
+    return
+  }
+
+  // Tidak ada token di URL — cek session biasa
   sb.auth.onAuthStateChange((event, session) => {
-    // User klik link reset password
-    if (event === 'PASSWORD_RECOVERY' || urlType === 'recovery') {
-      urlType = null
+    if (event === 'PASSWORD_RECOVERY') {
       showLogin()
       setTimeout(() => showModalSetPassword('reset'), 200)
       return
     }
-
-    if (event === 'SIGNED_IN' && session) {
-      const fromInvite = urlType === 'invite'
-      urlType = null
-      showApp(session.user)
-      if (fromInvite) {
-        setTimeout(() => showModalSetPassword('invite'), 400)
-      }
-      return
-    }
-
+    if (event === 'SIGNED_IN' && session) { showApp(session.user); return }
     if (!session) showLogin()
   })
 
-  // Cek session existing (bukan dari link email)
-  if (!urlType) {
-    const { data: { session } } = await sb.auth.getSession()
-    if (session) showApp(session.user)
-    else showLogin()
-  }
+  const { data: { session } } = await sb.auth.getSession()
+  if (session) showApp(session.user)
+  else showLogin()
 }
 
 function showModalSetPassword (mode = 'invite') {

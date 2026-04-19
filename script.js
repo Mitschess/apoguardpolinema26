@@ -1,378 +1,457 @@
-document.addEventListener('DOMContentLoaded', () => {
-    // === UI INITIALIZATION ===
-    // Set Date
-    const dateOptions = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
-    document.getElementById('dateDisplay').textContent = new Date().toLocaleDateString('id-ID', dateOptions);
+// ════════════════════════════════════════════════
+//  APOGUARD — script.js
+//  Ganti dua baris di bawah ini dengan kredensial Supabase kamu
+// ════════════════════════════════════════════════
 
-    // Sidebar Navigation
-    const navItems = {
-        'menu-pos': 'view-pos',
-        'menu-history': 'view-history',
-        'menu-alerts': 'view-alerts',
-        'menu-inventory': 'view-inventory'
-    };
+const SUPABASE_URL      = 'https://spavhlrmpakdnrqvkhss.supabase.co'   // contoh: https://abcxyz.supabase.co
+const SUPABASE_ANON_KEY = 'sb_publishable_repKElw3DDdSsVKDmS-m-Q_vA-es2nP' // sb_publishable_...
 
-    Object.keys(navItems).forEach(menuId => {
-        const menuEl = document.getElementById(menuId);
-        if(menuEl) {
-            menuEl.addEventListener('click', (e) => {
-                e.preventDefault();
-                // Remove active classes
-                document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
-                document.querySelectorAll('.view-section').forEach(el => el.classList.remove('active'));
-                
-                // Add active class
-                e.currentTarget.classList.add('active');
-                document.getElementById(navItems[menuId]).classList.add('active');
+// ────────────────────────────────────────────────
+const { createClient } = supabase
+const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
 
-                // Re-render
-                renderTables();
-                syncInventoryUI();
-            });
-        }
-    });
+// ════════════════════════════════════════════════
+//  CONSTANTS
+// ════════════════════════════════════════════════
+const MAX_ITEMS  = 2
+const DAYS_LIMIT = 7
 
-    // === DATA MANAGEMENT (LocalStorage) ===
-    const STORAGE_KEY = 'apoguard_transactions';
-    const INV_KEY = 'apoguard_inventory';
+// ════════════════════════════════════════════════
+//  AUTH — LOGIN / LOGOUT
+// ════════════════════════════════════════════════
+async function initAuth () {
+  const { data: { session } } = await sb.auth.getSession()
+  if (session) {
+    showApp(session.user)
+  } else {
+    showLogin()
+  }
 
-    // -- Inventori --
-    function getInventory() {
-        let data = localStorage.getItem(INV_KEY);
-        if (!data) {
-            data = [
-                { id: 'inv-1', name: 'Dextromethorphan (Sirup Batuk)', stock: 50 },
-                { id: 'inv-2', name: 'Pseudoephedrine (Tablet Flu)', stock: 50 },
-                { id: 'inv-3', name: 'Tramadol (Nyeri)', stock: 50 },
-                { id: 'inv-4', name: 'Chlorpheniramine (Antihistamin)', stock: 50 }
-            ];
-            localStorage.setItem(INV_KEY, JSON.stringify(data));
-        } else {
-            data = JSON.parse(data);
-        }
-        return data;
+  sb.auth.onAuthStateChange((_event, session) => {
+    if (session) showApp(session.user)
+    else         showLogin()
+  })
+}
+
+function showLogin () {
+  document.getElementById('login-page').style.display = 'flex'
+  document.getElementById('app-page').style.display   = 'none'
+}
+
+function showApp (user) {
+  document.getElementById('login-page').style.display = 'none'
+  document.getElementById('app-page').style.display   = 'flex'
+
+  // Tampilkan email apoteker
+  const email = user.email || '—'
+  document.getElementById('user-email-display').textContent = email
+  document.getElementById('user-avatar').textContent = email[0].toUpperCase()
+
+  // Set tanggal
+  const dateOptions = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }
+  document.getElementById('dateDisplay').textContent = new Date().toLocaleDateString('id-ID', dateOptions)
+
+  // Inisialisasi ikon & data
+  lucide.createIcons()
+  initApp()
+}
+
+// Tombol Login
+document.getElementById('btn-login').addEventListener('click', async () => {
+  const email    = document.getElementById('login-email').value.trim()
+  const password = document.getElementById('login-password').value
+
+  if (!email || !password) {
+    showLoginAlert('Email dan password wajib diisi.')
+    return
+  }
+
+  const btn = document.getElementById('btn-login')
+  btn.disabled     = true
+  btn.innerHTML    = '<i data-lucide="loader-2"></i> Memproses...'
+  lucide.createIcons()
+
+  const { error } = await sb.auth.signInWithPassword({ email, password })
+
+  btn.disabled  = false
+  btn.innerHTML = '<i data-lucide="log-in"></i> Masuk'
+  lucide.createIcons()
+
+  if (error) {
+    showLoginAlert('Email atau password salah. Silakan coba lagi.')
+  }
+})
+
+// Enter key di field password
+document.getElementById('login-password').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') document.getElementById('btn-login').click()
+})
+
+// Tombol Logout
+document.getElementById('btn-logout').addEventListener('click', async () => {
+  await sb.auth.signOut()
+})
+
+function showLoginAlert (msg) {
+  const el = document.getElementById('login-alert')
+  el.textContent    = msg
+  el.style.display  = 'block'
+}
+
+// ════════════════════════════════════════════════
+//  INIT APP (dipanggil setelah login berhasil)
+// ════════════════════════════════════════════════
+function initApp () {
+  setupNav()
+  renderTables()
+  syncInventoryUI()
+  setupForms()
+}
+
+// ════════════════════════════════════════════════
+//  NAVIGASI SIDEBAR
+// ════════════════════════════════════════════════
+function setupNav () {
+  const navItems = {
+    'menu-pos'      : 'view-pos',
+    'menu-history'  : 'view-history',
+    'menu-alerts'   : 'view-alerts',
+    'menu-inventory': 'view-inventory',
+  }
+
+  Object.keys(navItems).forEach(menuId => {
+    const el = document.getElementById(menuId)
+    if (!el) return
+    el.addEventListener('click', (e) => {
+      e.preventDefault()
+      document.querySelectorAll('.nav-item').forEach(x => x.classList.remove('active'))
+      document.querySelectorAll('.view-section').forEach(x => x.classList.remove('active'))
+      e.currentTarget.classList.add('active')
+      document.getElementById(navItems[menuId]).classList.add('active')
+      renderTables()
+      syncInventoryUI()
+    })
+  })
+}
+
+// ════════════════════════════════════════════════
+//  DATABASE — INVENTORI
+// ════════════════════════════════════════════════
+async function getInventory () {
+  const { data, error } = await sb.from('inventory').select('*').order('name')
+  if (error) { console.error(error); return [] }
+
+  // Seed data awal kalau tabel kosong
+  if (data.length === 0) {
+    const seeds = [
+      { id: 'inv-1', name: 'Dextromethorphan (Sirup Batuk)', stock: 50 },
+      { id: 'inv-2', name: 'Pseudoephedrine (Tablet Flu)',   stock: 50 },
+      { id: 'inv-3', name: 'Tramadol (Nyeri)',               stock: 50 },
+      { id: 'inv-4', name: 'Chlorpheniramine (Antihistamin)',stock: 50 },
+    ]
+    await sb.from('inventory').insert(seeds)
+    return seeds
+  }
+  return data
+}
+
+async function updateInventoryStock (id, newStock) {
+  const { error } = await sb.from('inventory').update({ stock: newStock }).eq('id', id)
+  if (error) console.error('updateInventoryStock:', error)
+}
+
+async function deleteInventoryItem (id) {
+  const { error } = await sb.from('inventory').delete().eq('id', id)
+  if (error) console.error('deleteInventoryItem:', error)
+}
+
+async function insertInventoryItem (item) {
+  const { error } = await sb.from('inventory').insert(item)
+  if (error) console.error('insertInventoryItem:', error)
+}
+
+// ════════════════════════════════════════════════
+//  DATABASE — TRANSAKSI
+// ════════════════════════════════════════════════
+async function getTransactions (searchQuery = '') {
+  let query = sb.from('transactions').select('*').order('timestamp', { ascending: false })
+  if (searchQuery) {
+    query = query.or(`nik.ilike.%${searchQuery}%,medicine.ilike.%${searchQuery}%`)
+  }
+  const { data, error } = await query
+  if (error) { console.error(error); return [] }
+  return data
+}
+
+async function saveTransaction (tx) {
+  const { error } = await sb.from('transactions').insert(tx)
+  if (error) console.error('saveTransaction:', error)
+}
+
+async function clearAllTransactions () {
+  const { error } = await sb.from('transactions').delete().neq('id', '')
+  if (error) console.error('clearAllTransactions:', error)
+}
+
+// ════════════════════════════════════════════════
+//  RULES ENGINE
+// ════════════════════════════════════════════════
+async function checkRules (nik, medicineId, targetQty) {
+  const inv = await getInventory()
+  const med = inv.find(i => i.id === medicineId)
+
+  if (!med)                   return { allowed: false, type: 'error', reason: 'Obat tidak terdaftar di sistem.' }
+  if (med.stock < targetQty)  return { allowed: false, type: 'error', reason: `Stok ${med.name} hanya tersisa ${med.stock} pcs.` }
+
+  // Cek riwayat 7 hari terakhir
+  const timeLimit = new Date(Date.now() - DAYS_LIMIT * 24 * 60 * 60 * 1000).toISOString()
+  const { data: past, error } = await sb
+    .from('transactions')
+    .select('quantity')
+    .eq('nik', nik)
+    .eq('medicine_id', medicineId)
+    .eq('status', 'SUCCESS')
+    .gte('timestamp', timeLimit)
+
+  if (error) console.error('checkRules query:', error)
+
+  const accumulatedQty = (past || []).reduce((sum, tx) => sum + tx.quantity, 0)
+  const newTotal       = accumulatedQty + parseInt(targetQty)
+
+  if (newTotal > MAX_ITEMS) {
+    return {
+      allowed : false,
+      type    : 'abuse',
+      reason  : `Batas aturan terlampaui. Limit ${MAX_ITEMS} pcs per ${DAYS_LIMIT} hari. (Sudah beli ${accumulatedQty} + permintaan ${targetQty} = ${newTotal}). Indikasi Penyalahgunaan.`,
+      medName : med.name,
+    }
+  }
+
+  return { allowed: true, type: 'success', medName: med.name, med }
+}
+
+// ════════════════════════════════════════════════
+//  UI HELPERS
+// ════════════════════════════════════════════════
+function showAlert (type, title, message) {
+  const container = document.getElementById('alertContainer')
+  const iconHtml  = type === 'success'
+    ? `<i data-lucide="check-circle" style="color:var(--success)"></i>`
+    : `<i data-lucide="shield-alert" style="color:var(--danger)"></i>`
+
+  const div = document.createElement('div')
+  div.className = `alert alert-${type}`
+  div.innerHTML = `${iconHtml}<div class="alert-content"><h4>${title}</h4><p>${message}</p></div>`
+  container.innerHTML = ''
+  container.appendChild(div)
+  lucide.createIcons()
+  setTimeout(() => { if (container.contains(div)) div.remove() }, 8000)
+}
+
+function setLoading (btn, loading, defaultHtml) {
+  btn.disabled  = loading
+  btn.innerHTML = loading ? '<i data-lucide="loader-2"></i> Memproses...' : defaultHtml
+  lucide.createIcons()
+}
+
+// ════════════════════════════════════════════════
+//  FORM KASIR
+// ════════════════════════════════════════════════
+function setupForms () {
+  // ── Kasir ──
+  const posForm = document.getElementById('posForm')
+  posForm.addEventListener('submit', async (e) => {
+    e.preventDefault()
+    const nik        = document.getElementById('nik').value.trim()
+    const medicineId = document.getElementById('medicine').value
+    const quantity   = parseInt(document.getElementById('quantity').value)
+    if (!nik || !medicineId || !quantity) return
+
+    const submitBtn = posForm.querySelector('button[type="submit"]')
+    setLoading(submitBtn, true, '<i data-lucide="check-circle"></i> Validasi & Proses Transaksi')
+
+    const ruleCheck = await checkRules(nik, medicineId, quantity)
+    setLoading(submitBtn, false, '<i data-lucide="check-circle"></i> Validasi & Proses Transaksi')
+
+    if (ruleCheck.type === 'error') {
+      showAlert('danger', 'Gagal Memproses!', ruleCheck.reason)
+      return
     }
 
-    function saveInventory(data) {
-        localStorage.setItem(INV_KEY, JSON.stringify(data));
-        syncInventoryUI();
+    const txObj = {
+      id          : 'TX-' + Math.random().toString(36).substr(2, 9).toUpperCase(),
+      timestamp   : new Date().toISOString(),
+      nik,
+      medicine_id : medicineId,
+      medicine    : ruleCheck.medName || 'Unknown',
+      quantity,
+      status      : ruleCheck.allowed ? 'SUCCESS' : 'BLOCKED',
+      reason      : ruleCheck.allowed ? '-' : ruleCheck.reason,
     }
 
-    // -- Transaksi --
-    function getTransactions() {
-        const data = localStorage.getItem(STORAGE_KEY);
-        return data ? JSON.parse(data) : [];
+    await saveTransaction(txObj)
+
+    if (ruleCheck.allowed) {
+      const newStock = ruleCheck.med.stock - quantity
+      await updateInventoryStock(medicineId, newStock)
+      showAlert('success', 'Transaksi Valid', `KTP ${nik} sukses membeli ${quantity} ${ruleCheck.medName}. Stok berhasil dipotong.`)
+      posForm.reset()
+    } else {
+      showAlert('danger', 'Transaksi Diblokir!', ruleCheck.reason)
     }
 
-    function saveTransaction(tx) {
-        const data = getTransactions();
-        data.push(tx);
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    await renderTables()
+    await syncInventoryUI()
+  })
+
+  // ── Inventori ──
+  const invForm = document.getElementById('inventoryForm')
+  if (invForm) {
+    invForm.addEventListener('submit', async (e) => {
+      e.preventDefault()
+      const name  = document.getElementById('newMedicineName').value.trim()
+      const stock = parseInt(document.getElementById('newMedicineStock').value)
+      const item  = { id: 'inv-' + Math.random().toString(36).substr(2, 9), name, stock }
+
+      const submitBtn = invForm.querySelector('button[type="submit"]')
+      setLoading(submitBtn, true, '<i data-lucide="plus-circle"></i> Tambah ke Inventori')
+      await insertInventoryItem(item)
+      setLoading(submitBtn, false, '<i data-lucide="plus-circle"></i> Tambah ke Inventori')
+
+      showAlert('success', 'Berhasil', `Obat ${name} ditambahkan dengan stok awal ${stock}.`)
+      invForm.reset()
+      await syncInventoryUI()
+    })
+  }
+
+  // ── Hapus Riwayat ──
+  document.getElementById('btn-clear-history').addEventListener('click', async () => {
+    if (!confirm('Yakin hapus semua riwayat transaksi?')) return
+    await clearAllTransactions()
+    await renderTables()
+    showAlert('success', 'Berhasil', 'Seluruh riwayat transaksi telah dihapus.')
+  })
+
+  // ── Inventori table actions (delegasi event) ──
+  document.getElementById('inventoryTableBody').addEventListener('click', async (e) => {
+    const btn = e.target.closest('button')
+    if (!btn) return
+    const id  = btn.getAttribute('data-id')
+    const inv = await getInventory()
+    const med = inv.find(i => i.id === id)
+    if (!med) return
+
+    if (btn.classList.contains('btn-del')) {
+      if (!confirm(`Yakin hapus ${med.name} dari inventori?`)) return
+      await deleteInventoryItem(id)
+
+    } else if (btn.classList.contains('btn-add-stok')) {
+      const add = prompt(`Tambah stok untuk ${med.name}:`, '10')
+      if (!add || isNaN(add)) return
+      await updateInventoryStock(id, med.stock + parseInt(add))
+
+    } else if (btn.classList.contains('btn-min-stok')) {
+      const min = prompt(`Kurangi stok untuk ${med.name}:`, '5')
+      if (!min || isNaN(min)) return
+      if (med.stock < parseInt(min)) { alert('Stok tidak cukup!'); return }
+      await updateInventoryStock(id, med.stock - parseInt(min))
     }
 
-    function clearHistory() {
-        if(confirm('Apakah Anda yakin ingin menghapus semua history riwayat?')) {
-            localStorage.removeItem(STORAGE_KEY);
-            renderTables();
-            showAlert('success', 'Berhasil', 'Seluruh data riwayat transaksi telah dihapus.');
-        }
-    }
-    
-    document.getElementById('btn-clear-history').addEventListener('click', clearHistory);
+    await syncInventoryUI()
+  })
 
-    // === RULES ENGINE ===
-    const MAX_ITEMS = 2;
-    const DAYS_LIMIT = 7;
+  // ── Search ──
+  const searchInput = document.getElementById('searchHistory')
+  if (searchInput) {
+    searchInput.addEventListener('input', (e) => renderTables(e.target.value))
+  }
+}
 
-    function checkRules(nik, medicineId, targetQty) {
-        // Cek Inventori dulu
-        const inv = getInventory();
-        const med = inv.find(i => i.id === medicineId);
-        
-        if (!med) return { allowed: false, type: 'error', reason: "Obat tidak terdaftar di sistem." };
-        if (med.stock < targetQty) return { allowed: false, type: 'error', reason: `Gagal diproses! Sisa stok ${med.name} di inventori hanya ${med.stock} pcs.`};
-        
-        // Cek Riwayat Penyalahgunaan
-        const transactions = getTransactions();
-        const now = new Date();
-        const timeLimit = now.getTime() - (DAYS_LIMIT * 24 * 60 * 60 * 1000);
+// ════════════════════════════════════════════════
+//  RENDER INVENTORI UI
+// ════════════════════════════════════════════════
+async function syncInventoryUI () {
+  const inv    = await getInventory()
+  const select = document.getElementById('medicine')
+  if (select) {
+    select.innerHTML = '<option value="" disabled selected>Pilih jenis obat...</option>'
+    inv.forEach(med => {
+      const opt       = document.createElement('option')
+      opt.value       = med.id
+      opt.textContent = `${med.name} (Sisa: ${med.stock})`
+      opt.disabled    = med.stock <= 0
+      select.appendChild(opt)
+    })
+  }
 
-        // Filter valid historical purchases for EXACT SAME NIK and MEDICINE
-        const pastPurchases = transactions.filter(tx => 
-            tx.nik === nik && 
-            tx.medicineId === medicineId && 
-            tx.status === 'SUCCESS' &&
-            new Date(tx.timestamp).getTime() > timeLimit
-        );
-
-        let accumulatedQty = 0;
-        pastPurchases.forEach(tx => {
-            accumulatedQty += tx.quantity;
-        });
-
-        const newTotal = accumulatedQty + parseInt(targetQty);
-
-        if (newTotal > MAX_ITEMS) {
-            return {
-                allowed: false,
-                type: 'abuse',
-                reason: `Batas aturan terlampaui. Total limit adalah ${MAX_ITEMS} botol/pcs dalam ${DAYS_LIMIT} hari. (Sebelumnya sudah membeli ${accumulatedQty} + permintaan baru ${targetQty} = ${newTotal}). Indikasi Penyalahgunaan.`,
-                medName: med.name
-            };
-        }
-
-        return { allowed: true, type: 'success', medName: med.name };
-    }
-
-    // === UI HELPERS ===
-    function showAlert(type, title, message) {
-        const container = document.getElementById('alertContainer');
-        
-        let iconHtml = type === 'success' 
-            ? `<i data-lucide="check-circle" style="color:var(--success)"></i>` 
-            : `<i data-lucide="shield-alert" style="color:var(--danger)"></i>`;
-
-        const alertDiv = document.createElement('div');
-        alertDiv.className = `alert alert-${type}`;
-        alertDiv.innerHTML = `
-            ${iconHtml}
-            <div class="alert-content">
-                <h4>${title}</h4>
-                <p>${message}</p>
+  const tbody = document.getElementById('inventoryTableBody')
+  if (tbody) {
+    tbody.innerHTML = ''
+    if (inv.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;">Belum ada obat terdaftar.</td></tr>'
+    } else {
+      inv.forEach(med => {
+        const tr = document.createElement('tr')
+        tr.innerHTML = `
+          <td><strong>${med.name}</strong></td>
+          <td>${med.stock}</td>
+          <td>
+            <div style="display:flex;gap:8px;">
+              <button type="button" class="btn btn-outline btn-sm btn-min-stok" data-id="${med.id}">-</button>
+              <button type="button" class="btn btn-outline btn-sm btn-add-stok" data-id="${med.id}">+</button>
+              <button type="button" class="btn btn-sm btn-del" data-id="${med.id}" style="border:1px solid var(--danger);color:var(--danger);background:transparent;">Hapus</button>
             </div>
-        `;
-
-        container.innerHTML = '';
-        container.appendChild(alertDiv);
-        lucide.createIcons();
-
-        setTimeout(() => {
-            if(container.contains(alertDiv)) {
-                alertDiv.remove();
-            }
-        }, 8000);
+          </td>`
+        tbody.appendChild(tr)
+      })
     }
+  }
+}
 
-    // === FORM KASIR HANDLING ===
-    const posForm = document.getElementById('posForm');
-    
-    posForm.addEventListener('submit', (e) => {
-        e.preventDefault();
-        
-        const nik = document.getElementById('nik').value;
-        const medicineId = document.getElementById('medicine').value;
-        const quantity = parseInt(document.getElementById('quantity').value);
+// ════════════════════════════════════════════════
+//  RENDER TABEL HISTORY & LOG BLOKIR
+// ════════════════════════════════════════════════
+async function renderTables (searchQuery = '') {
+  const transactions  = await getTransactions(searchQuery)
+  const historyTbody  = document.getElementById('historyTableBody')
+  const alertsTbody   = document.getElementById('alertsTableBody')
 
-        if(!nik || !medicineId || !quantity) return;
+  if (historyTbody) historyTbody.innerHTML = ''
+  if (alertsTbody)  alertsTbody.innerHTML  = ''
 
-        // 1. Check rules & stock
-        const ruleCheck = checkRules(nik, medicineId, quantity);
+  if (transactions.length === 0) {
+    if (historyTbody) historyTbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#94a3b8;">Belum ada data transaksi</td></tr>'
+    if (alertsTbody)  alertsTbody.innerHTML  = '<tr><td colspan="5" style="text-align:center;color:#94a3b8;">Belum ada log pelanggaran</td></tr>'
+    return
+  }
 
-        // Pencegahan Kasus Error Sistem (Misal: Kehabisan Stok)
-        // Jangan catat ke log sejarah pelanggaran, karena ini murni error!
-        if (ruleCheck.type === 'error') {
-            showAlert('danger', 'Gagal Memproses!', ruleCheck.reason);
-            return; // LANGSUNG BERHENTI, jangan disave
-        }
+  transactions.forEach(tx => {
+    const dateStr   = new Date(tx.timestamp).toLocaleString('id-ID')
+    const isSuccess = tx.status === 'SUCCESS'
 
-        // 2. Create Transaction Obj
-        const txObj = {
-            id: 'TX-' + Math.random().toString(36).substr(2, 9).toUpperCase(),
-            timestamp: new Date().toISOString(),
-            nik: nik,
-            medicineId: medicineId,
-            medicine: ruleCheck.medName || 'Unknown',
-            quantity: quantity,
-            status: ruleCheck.allowed ? 'SUCCESS' : 'BLOCKED',
-            reason: ruleCheck.allowed ? '-' : ruleCheck.reason
-        };
+    const tr = document.createElement('tr')
+    tr.innerHTML = `
+      <td>${dateStr}</td>
+      <td><strong>${tx.nik}</strong></td>
+      <td>${tx.medicine}</td>
+      <td>${tx.quantity}</td>
+      <td><span class="badge ${isSuccess ? 'badge-success' : 'badge-danger'}">${tx.status}</span></td>`
+    if (historyTbody) historyTbody.appendChild(tr)
 
-        // 3. Save Log
-        saveTransaction(txObj);
-
-        // 4. Update UI & Deduct Stock
-        if (ruleCheck.allowed) {
-            // Deduct Stock
-            let inv = getInventory();
-            let medIndex = inv.findIndex(i => i.id === medicineId);
-            if(medIndex !== -1) {
-                inv[medIndex].stock -= quantity;
-                saveInventory(inv);
-            }
-
-            showAlert('success', 'Transaksi Valid', `KTP ${nik} sukses membeli ${quantity} ${ruleCheck.medName}. Stok berhasil dipotong.`);
-            posForm.reset(); 
-        } else {
-            showAlert('danger', 'Transaksi Diblokir!', `KTP ${nik}: ${ruleCheck.reason}`);
-        }
-
-        renderTables(); 
-    });
-
-    // === FORM INVENTORY HANDLING ===
-    const invForm = document.getElementById('inventoryForm');
-    if(invForm) {
-        invForm.addEventListener('submit', (e) => {
-            e.preventDefault();
-            const name = document.getElementById('newMedicineName').value;
-            const stock = parseInt(document.getElementById('newMedicineStock').value);
-            
-            let inv = getInventory();
-            inv.push({
-                id: 'inv-' + Math.random().toString(36).substr(2, 9),
-                name: name,
-                stock: stock
-            });
-            saveInventory(inv);
-            
-            showAlert('success', 'Berhasil', `Obat baru ${name} ditambahkan ke inventori dengan stok awal ${stock}.`);
-            invForm.reset();
-        });
+    if (!isSuccess) {
+      const trAlert = document.createElement('tr')
+      trAlert.innerHTML = `
+        <td>${dateStr}</td>
+        <td><strong>${tx.nik}</strong></td>
+        <td>${tx.medicine}</td>
+        <td>${tx.quantity}</td>
+        <td class="text-danger">${tx.reason}</td>`
+      if (alertsTbody) alertsTbody.appendChild(trAlert)
     }
+  })
+}
 
-    // Table Event Delegation for Delete/Adjust
-    document.getElementById('inventoryTableBody').addEventListener('click', (e) => {
-        const btn = e.target.closest('button');
-        if(!btn) return;
-        
-        const id = btn.getAttribute('data-id');
-        let inv = getInventory();
-        const medIndex = inv.findIndex(i => i.id === id);
-        if(medIndex === -1) return;
-
-        if (btn.classList.contains('btn-del')) {
-            if(confirm(`Yakin hapus ${inv[medIndex].name} dari inventori?`)) {
-                inv.splice(medIndex, 1);
-                saveInventory(inv);
-            }
-        } else if (btn.classList.contains('btn-add-stok')) {
-             let add = prompt(`Masukkan jumlah stok yang ditambahkan untuk ${inv[medIndex].name}:`, "10");
-             if (add && !isNaN(add)) {
-                 inv[medIndex].stock += parseInt(add);
-                 saveInventory(inv);
-             }
-        } else if (btn.classList.contains('btn-min-stok')) {
-             let min = prompt(`Masukkan jumlah stok yang dikurangi untuk ${inv[medIndex].name}:`, "5");
-             if (min && !isNaN(min)) {
-                 if (inv[medIndex].stock < parseInt(min)) {
-                     alert('Stok tidak cukup untuk dikurangi!');
-                     return;
-                 }
-                 inv[medIndex].stock -= parseInt(min);
-                 saveInventory(inv);
-             }
-        }
-    });
-
-    // === RENDER INVENTORY UI ===
-    function syncInventoryUI() {
-        const inv = getInventory();
-        
-        // 1. Sync Dropdown in POS
-        const select = document.getElementById('medicine');
-        if(select) {
-            select.innerHTML = '<option value="" disabled selected>Pilih jenis obat...</option>';
-            inv.forEach(med => {
-                const opt = document.createElement('option');
-                opt.value = med.id;
-                opt.textContent = `${med.name} (Sisa: ${med.stock})`;
-                opt.disabled = med.stock <= 0;
-                select.appendChild(opt);
-            });
-        }
-        
-        // 2. Sync Inventory Table
-        const tbody = document.getElementById('inventoryTableBody');
-        if(tbody) {
-            tbody.innerHTML = '';
-            if(inv.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;">Belum ada obat terdaftar.</td></tr>';
-            } else {
-                inv.forEach(med => {
-                    const tr = document.createElement('tr');
-                    tr.innerHTML = `
-                        <td><strong>${med.name}</strong></td>
-                        <td>${med.stock}</td>
-                        <td>
-                            <div style="display:flex; gap:8px;">
-                                <button type="button" class="btn btn-outline btn-sm btn-min-stok" data-id="${med.id}" title="Kurangi Stok">-</button>
-                                <button type="button" class="btn btn-outline btn-sm btn-add-stok" data-id="${med.id}" title="Tambah Stok">+</button>
-                                <button type="button" class="btn btn-sm btn-del" data-id="${med.id}" style="border: 1px solid var(--danger); color:var(--danger); background:transparent;" title="Hapus">Hapus</button>
-                            </div>
-                        </td>
-                    `;
-                    tbody.appendChild(tr);
-                });
-            }
-        }
-    }
-
-    // === RENDER HISTORY TABLES ===
-    function renderTables(searchQuery = '') {
-        let transactions = getTransactions();
-        
-        if (searchQuery) {
-            const lowerQuery = searchQuery.toLowerCase();
-            transactions = transactions.filter(tx => 
-                tx.nik.toLowerCase().includes(lowerQuery) || 
-                tx.medicine.toLowerCase().includes(lowerQuery)
-            );
-        }
-        
-        // Sort newest first
-        transactions.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-
-        const historyTbody = document.getElementById('historyTableBody');
-        const alertsTbody = document.getElementById('alertsTableBody');
-        
-        if(historyTbody) historyTbody.innerHTML = '';
-        if(alertsTbody) alertsTbody.innerHTML = '';
-
-        if(transactions.length === 0) {
-            if(historyTbody) historyTbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#94a3b8;">Belum ada data transaksi</td></tr>';
-            if(alertsTbody) alertsTbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#94a3b8;">Belum ada log pelanggaran</td></tr>';
-            return;
-        }
-
-        transactions.forEach(tx => {
-            const dateStr = new Date(tx.timestamp).toLocaleString('id-ID');
-            const isSuccess = tx.status === 'SUCCESS';
-
-            // All Transactions row
-            const tr = document.createElement('tr');
-            tr.innerHTML = `
-                <td>${dateStr}</td>
-                <td><strong>${tx.nik}</strong></td>
-                <td>${tx.medicine}</td>
-                <td>${tx.quantity}</td>
-                <td><span class="badge ${isSuccess ? 'badge-success' : 'badge-danger'}">${tx.status}</span></td>
-            `;
-            if(historyTbody) historyTbody.appendChild(tr);
-
-            // Blocked Alerts row
-            if(!isSuccess) {
-                const trAlert = document.createElement('tr');
-                trAlert.innerHTML = `
-                    <td>${dateStr}</td>
-                    <td><strong>${tx.nik}</strong></td>
-                    <td>${tx.medicine}</td>
-                    <td>${tx.quantity}</td>
-                    <td class="text-danger">${tx.reason}</td>
-                `;
-                if(alertsTbody) alertsTbody.appendChild(trAlert);
-            }
-        });
-    }
-
-    // Initial renders
-    renderTables();
-    syncInventoryUI();
-
-    // History Search Feature
-    const searchInput = document.getElementById('searchHistory');
-    if (searchInput) {
-        searchInput.addEventListener('input', (e) => {
-            renderTables(e.target.value);
-        });
-    }
-});
+// ════════════════════════════════════════════════
+//  ENTRY POINT
+// ════════════════════════════════════════════════
+initAuth()

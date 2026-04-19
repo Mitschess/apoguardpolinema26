@@ -36,6 +36,9 @@ async function initAuth () {
 function showLogin () {
   document.getElementById('login-page').style.display = 'flex'
   document.getElementById('app-page').style.display   = 'none'
+  document.getElementById('login-email').value = ''
+  document.getElementById('login-password').value = ''
+  document.getElementById('login-alert').style.display = 'none'
 }
 
 function showApp (user) {
@@ -87,9 +90,69 @@ document.getElementById('login-password').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') document.getElementById('btn-login').click()
 })
 
-// Tombol Logout
-document.getElementById('btn-logout').addEventListener('click', async () => {
+// Tombol Logout (sidebar desktop)
+async function doLogout () {
   await sb.auth.signOut()
+  showLogin()
+}
+
+document.getElementById('btn-logout').addEventListener('click', doLogout)
+
+// Tombol Logout (mobile topbar)
+const btnLogoutMobile = document.getElementById('btn-logout-mobile')
+if (btnLogoutMobile) btnLogoutMobile.addEventListener('click', doLogout)
+
+// ── Lupa Password ──
+document.getElementById('btn-forgot-password').addEventListener('click', () => {
+  document.getElementById('reset-email').value = ''
+  document.getElementById('reset-alert').style.display = 'none'
+  document.getElementById('modal-reset').style.display = 'flex'
+  lucide.createIcons()
+})
+
+document.getElementById('btn-reset-cancel').addEventListener('click', () => {
+  document.getElementById('modal-reset').style.display = 'none'
+})
+
+document.getElementById('btn-reset-send').addEventListener('click', async () => {
+  const email   = document.getElementById('reset-email').value.trim()
+  const alertEl = document.getElementById('reset-alert')
+
+  if (!email) {
+    alertEl.textContent = 'Email wajib diisi.'
+    alertEl.style.display = 'block'
+    alertEl.style.background = 'var(--danger-bg)'
+    alertEl.style.color = '#991b1b'
+    return
+  }
+
+  const btn = document.getElementById('btn-reset-send')
+  btn.disabled  = true
+  btn.innerHTML = '<i data-lucide="loader-2"></i> Mengirim...'
+  lucide.createIcons()
+
+  const { error } = await sb.auth.resetPasswordForEmail(email, {
+    redirectTo: window.location.origin + window.location.pathname
+  })
+
+  btn.disabled  = false
+  btn.innerHTML = '<i data-lucide="send"></i> Kirim Link'
+  lucide.createIcons()
+
+  if (error) {
+    alertEl.textContent = 'Gagal mengirim. Periksa email dan coba lagi.'
+    alertEl.style.display = 'block'
+    alertEl.style.background = 'var(--danger-bg)'
+    alertEl.style.color = '#991b1b'
+  } else {
+    alertEl.textContent = '✅ Link reset password dikirim! Cek inbox email Anda.'
+    alertEl.style.display = 'block'
+    alertEl.style.background = 'var(--success-bg)'
+    alertEl.style.color = '#065f46'
+    setTimeout(() => {
+      document.getElementById('modal-reset').style.display = 'none'
+    }, 3000)
+  }
 })
 
 function showLoginAlert (msg) {

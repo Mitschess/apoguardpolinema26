@@ -20,30 +20,25 @@ const DAYS_LIMIT = 7
 //  AUTH — LOGIN / LOGOUT
 // ════════════════════════════════════════════════
 async function initAuth () {
-  // Cek URL hash — Supabase sisipkan access_token + type di hash
-  const hashParams   = new URLSearchParams(window.location.hash.replace('#', ''))
-  const accessToken  = hashParams.get('access_token')
-  const refreshToken = hashParams.get('refresh_token')
-  const urlType      = hashParams.get('type') // 'invite' | 'recovery' | null
+  // Cek URL hash untuk token dari email invite/recovery
+  const hash        = window.location.hash
+  const hashParams  = new URLSearchParams(hash.replace('#', ''))
+  const accessToken = hashParams.get('access_token')
+  const refreshToken= hashParams.get('refresh_token')
+  const urlType     = hashParams.get('type') // 'invite' | 'recovery'
 
-  // Kalau ada token di URL (dari link email), set session dulu
   if (accessToken && refreshToken) {
+    // Bersihkan URL
     history.replaceState(null, '', window.location.pathname)
-    const { error } = await sb.auth.setSession({ access_token: accessToken, refresh_token: refreshToken })
-    if (error) {
-      console.error('setSession error:', error)
-      showLogin()
-      return
-    }
-
-    // Setelah session valid, tampilkan modal sesuai tipe
+    // Set session dari token
+    await sb.auth.setSession({ access_token: accessToken, refresh_token: refreshToken })
     const { data: { session } } = await sb.auth.getSession()
     if (session) {
       if (urlType === 'recovery') {
         showLogin()
-        setTimeout(() => showModalSetPassword('reset'), 200)
+        showModalSetPassword('reset')
       } else {
-        // invite atau signup
+        // invite
         showApp(session.user)
         setTimeout(() => showModalSetPassword('invite'), 400)
       }
@@ -53,36 +48,34 @@ async function initAuth () {
     return
   }
 
-  // Tidak ada token di URL — cek session biasa
+  // Normal flow
+  const { data: { session } } = await sb.auth.getSession()
+  if (session) showApp(session.user)
+  else showLogin()
+
   sb.auth.onAuthStateChange((event, session) => {
     if (event === 'PASSWORD_RECOVERY') {
       showLogin()
       setTimeout(() => showModalSetPassword('reset'), 200)
       return
     }
-    if (event === 'SIGNED_IN' && session) { showApp(session.user); return }
-    if (!session) showLogin()
+    if (session) showApp(session.user)
+    else showLogin()
   })
-
-  const { data: { session } } = await sb.auth.getSession()
-  if (session) showApp(session.user)
-  else showLogin()
 }
 
-function showModalSetPassword (mode = 'invite') {
-  const modal   = document.getElementById('modal-set-password')
-  const title   = document.getElementById('set-password-title')
+function showModalSetPassword (mode) {
+  const modal    = document.getElementById('modal-set-password')
+  const title    = document.getElementById('set-password-title')
   const subtitle = document.getElementById('set-password-subtitle')
-
   if (mode === 'invite') {
-    title.textContent   = '🔐 Buat Password Baru'
-    subtitle.textContent = 'Selamat datang! Anda login pertama kali via undangan. Silakan buat password untuk login berikutnya.'
+    title.textContent    = '🔐 Buat Password Baru'
+    subtitle.textContent = 'Selamat datang! Silakan buat password untuk login berikutnya.'
   } else {
-    title.textContent   = '🔑 Reset Password'
+    title.textContent    = '🔑 Reset Password'
     subtitle.textContent = 'Masukkan password baru Anda.'
   }
-
-  document.getElementById('new-password').value    = ''
+  document.getElementById('new-password').value     = ''
   document.getElementById('confirm-password').value = ''
   document.getElementById('set-password-alert').style.display = 'none'
   modal.style.display = 'flex'
@@ -146,42 +139,29 @@ document.getElementById('login-password').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') document.getElementById('btn-login').click()
 })
 
-// Tombol Logout (sidebar desktop)
+// Logout
 async function doLogout () {
   await sb.auth.signOut()
   showLogin()
 }
-
 document.getElementById('btn-logout').addEventListener('click', doLogout)
+const _mobileLogout = document.getElementById('btn-logout-mobile')
+if (_mobileLogout) _mobileLogout.addEventListener('click', doLogout)
 
-// Tombol Logout (mobile topbar)
-const btnLogoutMobile = document.getElementById('btn-logout-mobile')
-if (btnLogoutMobile) btnLogoutMobile.addEventListener('click', doLogout)
-
-// ── Modal Set Password (Invite / Reset) ──
+// Modal Set Password handler
 document.getElementById('btn-set-password-save').addEventListener('click', async () => {
   const newPass     = document.getElementById('new-password').value
   const confirmPass = document.getElementById('confirm-password').value
   const alertEl     = document.getElementById('set-password-alert')
-
   alertEl.style.display = 'none'
 
-  if (!newPass || !confirmPass) {
-    alertEl.textContent = 'Semua field wajib diisi.'
-    alertEl.style.display = 'block'
-    alertEl.style.background = 'var(--danger-bg)'
-    alertEl.style.color = '#991b1b'
-    return
-  }
-
-  if (newPass.length < 6) {
+  if (!newPass || newPass.length < 6) {
     alertEl.textContent = 'Password minimal 6 karakter.'
     alertEl.style.display = 'block'
     alertEl.style.background = 'var(--danger-bg)'
     alertEl.style.color = '#991b1b'
     return
   }
-
   if (newPass !== confirmPass) {
     alertEl.textContent = 'Password dan konfirmasi tidak cocok.'
     alertEl.style.display = 'block'
@@ -202,37 +182,36 @@ document.getElementById('btn-set-password-save').addEventListener('click', async
   lucide.createIcons()
 
   if (error) {
-    alertEl.textContent = 'Gagal menyimpan: ' + error.message
+    alertEl.textContent = 'Gagal: ' + error.message
     alertEl.style.display = 'block'
     alertEl.style.background = 'var(--danger-bg)'
     alertEl.style.color = '#991b1b'
   } else {
-    alertEl.textContent = '✅ Password berhasil disimpan! Gunakan password ini untuk login berikutnya.'
+    alertEl.textContent = '✅ Password tersimpan! Silakan login kembali.'
     alertEl.style.display = 'block'
     alertEl.style.background = 'var(--success-bg)'
     alertEl.style.color = '#065f46'
-    setTimeout(() => {
+    setTimeout(async () => {
       document.getElementById('modal-set-password').style.display = 'none'
+      await doLogout()
     }, 2500)
   }
 })
 
-// ── Lupa Password ──
+// Lupa Password
 document.getElementById('btn-forgot-password').addEventListener('click', () => {
   document.getElementById('reset-email').value = ''
   document.getElementById('reset-alert').style.display = 'none'
   document.getElementById('modal-reset').style.display = 'flex'
   lucide.createIcons()
 })
-
 document.getElementById('btn-reset-cancel').addEventListener('click', () => {
   document.getElementById('modal-reset').style.display = 'none'
 })
-
 document.getElementById('btn-reset-send').addEventListener('click', async () => {
   const email   = document.getElementById('reset-email').value.trim()
   const alertEl = document.getElementById('reset-alert')
-
+  alertEl.style.display = 'none'
   if (!email) {
     alertEl.textContent = 'Email wajib diisi.'
     alertEl.style.display = 'block'
@@ -240,33 +219,27 @@ document.getElementById('btn-reset-send').addEventListener('click', async () => 
     alertEl.style.color = '#991b1b'
     return
   }
-
   const btn = document.getElementById('btn-reset-send')
   btn.disabled  = true
   btn.innerHTML = '<i data-lucide="loader-2"></i> Mengirim...'
   lucide.createIcons()
-
   const { error } = await sb.auth.resetPasswordForEmail(email, {
     redirectTo: window.location.origin + window.location.pathname
   })
-
   btn.disabled  = false
   btn.innerHTML = '<i data-lucide="send"></i> Kirim Link'
   lucide.createIcons()
-
   if (error) {
     alertEl.textContent = 'Gagal mengirim. Periksa email dan coba lagi.'
     alertEl.style.display = 'block'
     alertEl.style.background = 'var(--danger-bg)'
     alertEl.style.color = '#991b1b'
   } else {
-    alertEl.textContent = '✅ Link reset password dikirim! Cek inbox email Anda.'
+    alertEl.textContent = '✅ Link reset dikirim! Cek inbox email Anda.'
     alertEl.style.display = 'block'
     alertEl.style.background = 'var(--success-bg)'
     alertEl.style.color = '#065f46'
-    setTimeout(() => {
-      document.getElementById('modal-reset').style.display = 'none'
-    }, 3000)
+    setTimeout(() => { document.getElementById('modal-reset').style.display = 'none' }, 3000)
   }
 })
 

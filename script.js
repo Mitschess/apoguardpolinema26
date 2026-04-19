@@ -20,74 +20,22 @@ const DAYS_LIMIT = 7
 //  AUTH — LOGIN / LOGOUT
 // ════════════════════════════════════════════════
 async function initAuth () {
-  // Cek URL hash untuk token dari email invite/recovery
-  const hash        = window.location.hash
-  const hashParams  = new URLSearchParams(hash.replace('#', ''))
-  const accessToken = hashParams.get('access_token')
-  const refreshToken= hashParams.get('refresh_token')
-  const urlType     = hashParams.get('type') // 'invite' | 'recovery'
-
-  if (accessToken && refreshToken) {
-    // Bersihkan URL
-    history.replaceState(null, '', window.location.pathname)
-    // Set session dari token
-    await sb.auth.setSession({ access_token: accessToken, refresh_token: refreshToken })
-    const { data: { session } } = await sb.auth.getSession()
-    if (session) {
-      if (urlType === 'recovery') {
-        showLogin()
-        showModalSetPassword('reset')
-      } else {
-        // invite
-        showApp(session.user)
-        setTimeout(() => showModalSetPassword('invite'), 400)
-      }
-    } else {
-      showLogin()
-    }
-    return
-  }
-
-  // Normal flow
   const { data: { session } } = await sb.auth.getSession()
-  if (session) showApp(session.user)
-  else showLogin()
-
-  sb.auth.onAuthStateChange((event, session) => {
-    if (event === 'PASSWORD_RECOVERY') {
-      showLogin()
-      setTimeout(() => showModalSetPassword('reset'), 200)
-      return
-    }
-    if (session) showApp(session.user)
-    else showLogin()
-  })
-}
-
-function showModalSetPassword (mode) {
-  const modal    = document.getElementById('modal-set-password')
-  const title    = document.getElementById('set-password-title')
-  const subtitle = document.getElementById('set-password-subtitle')
-  if (mode === 'invite') {
-    title.textContent    = '🔐 Buat Password Baru'
-    subtitle.textContent = 'Selamat datang! Silakan buat password untuk login berikutnya.'
+  if (session) {
+    showApp(session.user)
   } else {
-    title.textContent    = '🔑 Reset Password'
-    subtitle.textContent = 'Masukkan password baru Anda.'
+    showLogin()
   }
-  document.getElementById('new-password').value     = ''
-  document.getElementById('confirm-password').value = ''
-  document.getElementById('set-password-alert').style.display = 'none'
-  modal.style.display = 'flex'
-  lucide.createIcons()
+
+  sb.auth.onAuthStateChange((_event, session) => {
+    if (session) showApp(session.user)
+    else         showLogin()
+  })
 }
 
 function showLogin () {
   document.getElementById('login-page').style.display = 'flex'
   document.getElementById('app-page').style.display   = 'none'
-  document.getElementById('login-email').value = ''
-  document.getElementById('login-password').value = ''
-  document.getElementById('login-alert').style.display = 'none'
 }
 
 function showApp (user) {
@@ -139,108 +87,9 @@ document.getElementById('login-password').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') document.getElementById('btn-login').click()
 })
 
-// Logout
-async function doLogout () {
+// Tombol Logout
+document.getElementById('btn-logout').addEventListener('click', async () => {
   await sb.auth.signOut()
-  showLogin()
-}
-document.getElementById('btn-logout').addEventListener('click', doLogout)
-const _mobileLogout = document.getElementById('btn-logout-mobile')
-if (_mobileLogout) _mobileLogout.addEventListener('click', doLogout)
-
-// Modal Set Password handler
-document.getElementById('btn-set-password-save').addEventListener('click', async () => {
-  const newPass     = document.getElementById('new-password').value
-  const confirmPass = document.getElementById('confirm-password').value
-  const alertEl     = document.getElementById('set-password-alert')
-  alertEl.style.display = 'none'
-
-  if (!newPass || newPass.length < 6) {
-    alertEl.textContent = 'Password minimal 6 karakter.'
-    alertEl.style.display = 'block'
-    alertEl.style.background = 'var(--danger-bg)'
-    alertEl.style.color = '#991b1b'
-    return
-  }
-  if (newPass !== confirmPass) {
-    alertEl.textContent = 'Password dan konfirmasi tidak cocok.'
-    alertEl.style.display = 'block'
-    alertEl.style.background = 'var(--danger-bg)'
-    alertEl.style.color = '#991b1b'
-    return
-  }
-
-  const btn = document.getElementById('btn-set-password-save')
-  btn.disabled  = true
-  btn.innerHTML = '<i data-lucide="loader-2"></i> Menyimpan...'
-  lucide.createIcons()
-
-  const { error } = await sb.auth.updateUser({ password: newPass })
-
-  btn.disabled  = false
-  btn.innerHTML = '<i data-lucide="save"></i> Simpan Password'
-  lucide.createIcons()
-
-  if (error) {
-    alertEl.textContent = 'Gagal: ' + error.message
-    alertEl.style.display = 'block'
-    alertEl.style.background = 'var(--danger-bg)'
-    alertEl.style.color = '#991b1b'
-  } else {
-    alertEl.textContent = '✅ Password tersimpan! Silakan login kembali.'
-    alertEl.style.display = 'block'
-    alertEl.style.background = 'var(--success-bg)'
-    alertEl.style.color = '#065f46'
-    setTimeout(async () => {
-      document.getElementById('modal-set-password').style.display = 'none'
-      await doLogout()
-    }, 2500)
-  }
-})
-
-// Lupa Password
-document.getElementById('btn-forgot-password').addEventListener('click', () => {
-  document.getElementById('reset-email').value = ''
-  document.getElementById('reset-alert').style.display = 'none'
-  document.getElementById('modal-reset').style.display = 'flex'
-  lucide.createIcons()
-})
-document.getElementById('btn-reset-cancel').addEventListener('click', () => {
-  document.getElementById('modal-reset').style.display = 'none'
-})
-document.getElementById('btn-reset-send').addEventListener('click', async () => {
-  const email   = document.getElementById('reset-email').value.trim()
-  const alertEl = document.getElementById('reset-alert')
-  alertEl.style.display = 'none'
-  if (!email) {
-    alertEl.textContent = 'Email wajib diisi.'
-    alertEl.style.display = 'block'
-    alertEl.style.background = 'var(--danger-bg)'
-    alertEl.style.color = '#991b1b'
-    return
-  }
-  const btn = document.getElementById('btn-reset-send')
-  btn.disabled  = true
-  btn.innerHTML = '<i data-lucide="loader-2"></i> Mengirim...'
-  lucide.createIcons()
-  const { error } = await sb.auth.resetPasswordForEmail(email, {
-    redirectTo: window.location.origin + window.location.pathname
-  })
-  btn.disabled  = false
-  btn.innerHTML = '<i data-lucide="send"></i> Kirim Link'
-  lucide.createIcons()
-  if (error) {
-    alertEl.textContent = 'Gagal mengirim. Periksa email dan coba lagi.'
-    alertEl.style.display = 'block'
-    alertEl.style.background = 'var(--danger-bg)'
-    alertEl.style.color = '#991b1b'
-  } else {
-    alertEl.textContent = '✅ Link reset dikirim! Cek inbox email Anda.'
-    alertEl.style.display = 'block'
-    alertEl.style.background = 'var(--success-bg)'
-    alertEl.style.color = '#065f46'
-    setTimeout(() => { document.getElementById('modal-reset').style.display = 'none' }, 3000)
-  }
 })
 
 function showLoginAlert (msg) {

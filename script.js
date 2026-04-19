@@ -20,38 +20,41 @@ const DAYS_LIMIT = 7
 //  AUTH — LOGIN / LOGOUT
 // ════════════════════════════════════════════════
 async function initAuth () {
-  const { data: { session } } = await sb.auth.getSession()
-  if (session) {
-    showApp(session.user)
-  } else {
-    showLogin()
-  }
+  // Cek URL hash — Supabase sisipkan type=invite atau type=recovery di URL
+  const hashParams = new URLSearchParams(window.location.hash.replace('#', ''))
+  let urlType      = hashParams.get('type') // 'invite' | 'recovery' | null
+
+  // Bersihkan hash dari URL tanpa reload
+  if (urlType) history.replaceState(null, '', window.location.pathname)
 
   sb.auth.onAuthStateChange((event, session) => {
-    if (event === 'PASSWORD_RECOVERY') {
-      // User klik link reset password dari email
+    // User klik link reset password
+    if (event === 'PASSWORD_RECOVERY' || urlType === 'recovery') {
+      urlType = null
       showLogin()
-      showModalSetPassword('reset')
+      setTimeout(() => showModalSetPassword('reset'), 200)
       return
     }
 
     if (event === 'SIGNED_IN' && session) {
-      // Deteksi user dari invite link (belum pernah login sebelumnya)
-      const isFromInvite = session.user.invited_at &&
-        (!session.user.last_sign_in_at ||
-          new Date(session.user.last_sign_in_at) - new Date(session.user.invited_at) < 5000)
-
-      if (isFromInvite) {
-        showApp(session.user)
-        showModalSetPassword('invite')
-        return
-      }
+      const fromInvite = urlType === 'invite'
+      urlType = null
       showApp(session.user)
+      if (fromInvite) {
+        setTimeout(() => showModalSetPassword('invite'), 400)
+      }
       return
     }
 
     if (!session) showLogin()
   })
+
+  // Cek session existing (bukan dari link email)
+  if (!urlType) {
+    const { data: { session } } = await sb.auth.getSession()
+    if (session) showApp(session.user)
+    else showLogin()
+  }
 }
 
 function showModalSetPassword (mode = 'invite') {

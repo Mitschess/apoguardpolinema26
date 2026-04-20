@@ -13,6 +13,7 @@ const DAYS_LIMIT = 7
 let currentUserId    = null
 let currentUserEmail = null
 let inventoryCache   = []
+let appInitialized   = false   // ← FIX: cegah duplicate event listener
 
 // ════════════════════════════════════════════════
 //  AUTH
@@ -67,7 +68,15 @@ function showLoginAlert (msg) {
 // ════════════════════════════════════════════════
 //  INIT
 // ════════════════════════════════════════════════
-function initApp () { setupNav(); renderTables(); syncInventoryUI(); setupForms() }
+function initApp () {
+  if (!appInitialized) {
+    setupNav()
+    setupForms()
+    appInitialized = true
+  }
+  renderTables()
+  syncInventoryUI()
+}
 
 // ════════════════════════════════════════════════
 //  NAVIGASI

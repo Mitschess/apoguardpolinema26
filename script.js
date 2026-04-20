@@ -242,10 +242,12 @@ function setupForms () {
   // Kasir
   document.getElementById('posForm').addEventListener('submit', async (e) => {
     e.preventDefault()
-    const nik        = document.getElementById('nik').value.trim()
-    const medicineId = document.getElementById('medicine').value
-    const quantity   = parseInt(document.getElementById('quantity').value)
-    if (!nik || !medicineId || !quantity) return
+    const nik          = document.getElementById('nik').value.trim()
+    const medicineId   = document.getElementById('medicine').value
+    const quantity     = parseInt(document.getElementById('quantity').value)
+    const recipient    = document.getElementById('recipient').value
+    const recipientNik = document.getElementById('recipient-nik').value.trim() || null
+    if (!nik || !medicineId || !quantity || !recipient) return
     const btn = e.target.querySelector('button[type="submit"]')
     const dHtml = '<i data-lucide="check-circle"></i> Validasi & Proses Transaksi'
     setLoading(btn, true, dHtml)
@@ -258,12 +260,14 @@ function setupForms () {
       medicine: rc.medName || 'Unknown', quantity,
       status: rc.allowed ? 'SUCCESS' : 'BLOCKED',
       reason: rc.allowed ? '-' : rc.reason,
+      recipient, recipient_nik: recipientNik,
     }
     await saveTransaction(txObj)
     if (rc.allowed) {
       await updateInventoryStock(medicineId, rc.med.stock - quantity)
+      const recipientInfo = recipient === 'Diri Sendiri' ? '' : ` untuk ${recipient}`
       showAlert('success', 'Transaksi Valid',
-        `KTP ${nik} sukses membeli ${quantity} pcs ${rc.medName}. (Batas: ${rc.maxPurchase} pcs / ${DAYS_LIMIT} hari)`)
+        `KTP ${nik} sukses membeli ${quantity} pcs ${rc.medName}${recipientInfo}. (Batas: ${rc.maxPurchase} pcs / ${DAYS_LIMIT} hari)`)
       e.target.reset()
     } else {
       showAlert('danger', 'Transaksi Diblokir!', rc.reason)
@@ -410,8 +414,8 @@ async function renderTables (searchQuery = '') {
   if (alertsTbody)  alertsTbody.innerHTML  = ''
 
   if (transactions.length === 0) {
-    if (historyTbody) historyTbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#94a3b8;">Belum ada data transaksi</td></tr>'
-    if (alertsTbody)  alertsTbody.innerHTML  = '<tr><td colspan="5" style="text-align:center;color:#94a3b8;">Belum ada log pelanggaran</td></tr>'
+    if (historyTbody) historyTbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#94a3b8;">Belum ada data transaksi</td></tr>'
+    if (alertsTbody)  alertsTbody.innerHTML  = '<tr><td colspan="6" style="text-align:center;color:#94a3b8;">Belum ada log pelanggaran</td></tr>'
     return
   }
 
@@ -423,12 +427,19 @@ async function renderTables (searchQuery = '') {
       ? `<br><span style="font-size:0.7rem;color:var(--text-muted)">${tx.pharmacy_email}</span>` : ''
     const rowBg     = isMine ? '' : 'background:#fafbff;'
 
+    // kolom "Untuk"
+    const recipientLabel = tx.recipient || 'Diri Sendiri'
+    const recipientNikTag = tx.recipient_nik
+      ? `<br><span style="font-size:0.7rem;color:var(--text-muted)">NIK: ${tx.recipient_nik}</span>` : ''
+    const recipientCell = `${recipientLabel}${recipientNikTag}`
+
     if (historyTbody) {
       const tr = document.createElement('tr')
       tr.setAttribute('style', rowBg)
       tr.innerHTML = `
         <td>${dateStr}${apoTag}</td>
         <td><strong>${tx.nik}</strong></td>
+        <td>${recipientCell}</td>
         <td>${tx.medicine}</td>
         <td>${tx.quantity}</td>
         <td><span class="badge ${isSuccess ? 'badge-success' : 'badge-danger'}">${tx.status}</span></td>`
@@ -441,6 +452,7 @@ async function renderTables (searchQuery = '') {
       trA.innerHTML = `
         <td>${dateStr}${apoTag}</td>
         <td><strong>${tx.nik}</strong></td>
+        <td>${recipientCell}</td>
         <td>${tx.medicine}</td>
         <td>${tx.quantity}</td>
         <td class="text-danger">${tx.reason}</td>`

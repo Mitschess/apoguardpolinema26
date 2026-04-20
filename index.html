@@ -97,12 +97,42 @@
                     <div class="card-body">
                         <form id="posForm" class="pos-form">
                             <div class="form-group">
-                                <label for="nik">Nomor KTP (NIK)</label>
+                                <label for="nik">Nomor KTP (NIK) Pembeli</label>
                                 <div class="input-with-icon">
                                     <i data-lucide="id-card"></i>
                                     <input type="text" id="nik" placeholder="Contoh: 3501000..." required autocomplete="off" minlength="16" maxlength="16" pattern="[0-9]+">
                                 </div>
-                                <small>Wajib 16 digit angka KTP</small>
+                                <small>Wajib 16 digit angka KTP pembeli (yang datang ke apotek)</small>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="recipient">Obat Dibelikan untuk Siapa?</label>
+                                    <div class="input-with-icon">
+                                        <i data-lucide="users"></i>
+                                        <select id="recipient" required>
+                                            <option value="" disabled selected>Pilih penerima obat...</option>
+                                            <option value="Diri Sendiri">🧑 Diri Sendiri</option>
+                                            <option value="Ayah">👨 Ayah</option>
+                                            <option value="Ibu">👩 Ibu</option>
+                                            <option value="Suami">👨‍💼 Suami</option>
+                                            <option value="Istri">👩‍💼 Istri</option>
+                                            <option value="Kakak">🧑 Kakak</option>
+                                            <option value="Adik">🧒 Adik</option>
+                                            <option value="Anak">👶 Anak</option>
+                                            <option value="Kakek">👴 Kakek</option>
+                                            <option value="Nenek">👵 Nenek</option>
+                                            <option value="Keluarga Lain">👨‍👩‍👧‍👦 Keluarga Lain</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label for="recipient-nik">NIK Penerima <span style="font-weight:400;color:var(--text-muted)">(opsional)</span></label>
+                                    <div class="input-with-icon">
+                                        <i data-lucide="id-card"></i>
+                                        <input type="text" id="recipient-nik" placeholder="NIK anggota keluarga..." autocomplete="off" maxlength="16" pattern="[0-9]*">
+                                    </div>
+                                    <small>Kosongkan jika untuk diri sendiri</small>
+                                </div>
                             </div>
                             <div class="form-row">
                                 <div class="form-group">
@@ -152,7 +182,7 @@
                     <div class="table-responsive">
                         <table class="data-table">
                             <thead><tr>
-                                <th>Waktu Transaksi</th><th>NIK Pembeli</th><th>Obat</th><th>Jumlah</th><th>Status</th>
+                                <th>Waktu Transaksi</th><th>NIK Pembeli</th><th>Untuk</th><th>Obat</th><th>Jumlah</th><th>Status</th>
                             </tr></thead>
                             <tbody id="historyTableBody"></tbody>
                         </table>
@@ -170,7 +200,7 @@
                     <div class="table-responsive">
                         <table class="data-table">
                             <thead><tr>
-                                <th>Waktu Ditolak</th><th>NIK Pelanggar</th><th>Obat Terkait</th><th>Permintaan (Pcs)</th><th>Alasan (Rules)</th>
+                                <th>Waktu Ditolak</th><th>NIK Pelanggar</th><th>Untuk</th><th>Obat Terkait</th><th>Permintaan (Pcs)</th><th>Alasan (Rules)</th>
                             </tr></thead>
                             <tbody id="alertsTableBody"></tbody>
                         </table>

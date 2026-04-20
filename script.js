@@ -3,8 +3,8 @@
 //  Ganti dua baris di bawah ini dengan kredensial Supabase kamu
 // ════════════════════════════════════════════════
 
-const SUPABASE_URL      = 'https://spavhlrmpakdnrqvkhss.supabase.co'   // contoh: https://abcxyz.supabase.co
-const SUPABASE_ANON_KEY = 'sb_publishable_repKElw3DDdSsVKDmS-m-Q_vA-es2nP' // sb_publishable_...
+const SUPABASE_URL      = 'https://spavhlrmpakdnrqvkhss.supabase.co'
+const SUPABASE_ANON_KEY = 'sb_publishable_repKElw3DDdSsVKDmS-m-Q_vA-es2nP'
 
 // ────────────────────────────────────────────────
 const { createClient } = supabase
@@ -15,6 +15,12 @@ const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
 // ════════════════════════════════════════════════
 const MAX_ITEMS  = 2
 const DAYS_LIMIT = 7
+
+// ════════════════════════════════════════════════
+//  STATE — user aktif
+// ════════════════════════════════════════════════
+let currentUserId  = null   // UUID dari Supabase auth
+let currentUserEmail = null
 
 // ════════════════════════════════════════════════
 //  AUTH — LOGIN / LOGOUT
@@ -34,18 +40,22 @@ async function initAuth () {
 }
 
 function showLogin () {
+  currentUserId    = null
+  currentUserEmail = null
   document.getElementById('login-page').style.display = 'flex'
   document.getElementById('app-page').style.display   = 'none'
 }
 
 function showApp (user) {
+  currentUserId    = user.id
+  currentUserEmail = user.email || '—'
+
   document.getElementById('login-page').style.display = 'none'
   document.getElementById('app-page').style.display   = 'flex'
 
   // Tampilkan email apoteker
-  const email = user.email || '—'
-  document.getElementById('user-email-display').textContent = email
-  document.getElementById('user-avatar').textContent = email[0].toUpperCase()
+  document.getElementById('user-email-display').textContent = currentUserEmail
+  document.getElementById('user-avatar').textContent = currentUserEmail[0].toUpperCase()
 
   // Set tanggal
   const dateOptions = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }
@@ -135,66 +145,122 @@ function setupNav () {
 }
 
 // ════════════════════════════════════════════════
-//  DATABASE — INVENTORI
+//  DATABASE — INVENTORI (per apotek / per user)
 // ════════════════════════════════════════════════
-async function getInventory () {
-  const { data, error } = await sb.from('inventory').select('*').order('name')
-  if (error) { console.error(error); return [] }
+//
+//  Skema tabel `inventory`:
+//  id TEXT, user_id UUID, name TEXT, stock INT
+//
+//  RLS Supabase:
+//  - SELECT: auth.uid() = user_id
+//  - INSERT: auth.uid() = user_id
+//  - UPDATE: auth.uid() = user_id
+//  - DELETE: auth.uid() = user_id
 
-  // Seed data awal kalau tabel kosong
+async function getInventory () {
+  // Hanya ambil inventori milik apotek (user) yang sedang login
+  const { data, error } = await sb
+    .from('inventory')
+    .select('*')
+    .eq('user_id', currentUserId)
+    .order('name')
+
+  if (error) { console.error('getInventory:', error); return [] }
+
+  // Seed data awal kalau apotek ini belum punya inventori sama sekali
   if (data.length === 0) {
     const seeds = [
-      { id: 'inv-1', name: 'Dextromethorphan (Sirup Batuk)', stock: 50 },
-      { id: 'inv-2', name: 'Pseudoephedrine (Tablet Flu)',   stock: 50 },
-      { id: 'inv-3', name: 'Tramadol (Nyeri)',               stock: 50 },
-      { id: 'inv-4', name: 'Chlorpheniramine (Antihistamin)',stock: 50 },
+      { id: 'inv-' + currentUserId.substr(0,8) + '-1', user_id: currentUserId, name: 'Dextromethorphan (Sirup Batuk)', stock: 50 },
+      { id: 'inv-' + currentUserId.substr(0,8) + '-2', user_id: currentUserId, name: 'Pseudoephedrine (Tablet Flu)',   stock: 50 },
+      { id: 'inv-' + currentUserId.substr(0,8) + '-3', user_id: currentUserId, name: 'Tramadol (Nyeri)',               stock: 50 },
+      { id: 'inv-' + currentUserId.substr(0,8) + '-4', user_id: currentUserId, name: 'Chlorpheniramine (Antihistamin)',stock: 50 },
     ]
-    await sb.from('inventory').insert(seeds)
+    const { error: seedErr } = await sb.from('inventory').insert(seeds)
+    if (seedErr) console.error('seed inventory:', seedErr)
     return seeds
   }
   return data
 }
 
 async function updateInventoryStock (id, newStock) {
-  const { error } = await sb.from('inventory').update({ stock: newStock }).eq('id', id)
+  const { error } = await sb
+    .from('inventory')
+    .update({ stock: newStock })
+    .eq('id', id)
+    .eq('user_id', currentUserId)   // pastikan hanya update milik sendiri
   if (error) console.error('updateInventoryStock:', error)
 }
 
 async function deleteInventoryItem (id) {
-  const { error } = await sb.from('inventory').delete().eq('id', id)
+  const { error } = await sb
+    .from('inventory')
+    .delete()
+    .eq('id', id)
+    .eq('user_id', currentUserId)   // pastikan hanya hapus milik sendiri
   if (error) console.error('deleteInventoryItem:', error)
 }
 
 async function insertInventoryItem (item) {
-  const { error } = await sb.from('inventory').insert(item)
+  // Selalu sisipkan user_id agar inventori terikat ke apotek ini
+  const { error } = await sb.from('inventory').insert({ ...item, user_id: currentUserId })
   if (error) console.error('insertInventoryItem:', error)
 }
 
 // ════════════════════════════════════════════════
-//  DATABASE — TRANSAKSI
+//  DATABASE — TRANSAKSI (global, semua apotek)
 // ════════════════════════════════════════════════
+//
+//  Skema tabel `transactions`:
+//  id TEXT, timestamp TIMESTAMPTZ, nik TEXT,
+//  medicine_id TEXT, medicine TEXT, quantity INT,
+//  status TEXT, reason TEXT,
+//  pharmacist_user_id UUID,   ← siapa yang input
+//  pharmacy_email TEXT        ← nama/identitas apotek asal
+//
+//  RLS Supabase:
+//  - SELECT: true (semua apoteker login bisa baca)
+//  - INSERT: auth.uid() = pharmacist_user_id (hanya pemilik bisa insert)
+//  - DELETE: auth.uid() = pharmacist_user_id (hanya pemilik bisa hapus miliknya)
+
 async function getTransactions (searchQuery = '') {
-  let query = sb.from('transactions').select('*').order('timestamp', { ascending: false })
+  // Semua apotek bisa lihat SEMUA transaksi (global)
+  let query = sb
+    .from('transactions')
+    .select('*')
+    .order('timestamp', { ascending: false })
+
   if (searchQuery) {
     query = query.or(`nik.ilike.%${searchQuery}%,medicine.ilike.%${searchQuery}%`)
   }
+
   const { data, error } = await query
-  if (error) { console.error(error); return [] }
+  if (error) { console.error('getTransactions:', error); return [] }
   return data
 }
 
 async function saveTransaction (tx) {
-  const { error } = await sb.from('transactions').insert(tx)
+  // Tambahkan identitas apotek yang mencatat transaksi ini
+  const enriched = {
+    ...tx,
+    pharmacist_user_id : currentUserId,
+    pharmacy_email     : currentUserEmail,
+  }
+  const { error } = await sb.from('transactions').insert(enriched)
   if (error) console.error('saveTransaction:', error)
 }
 
 async function clearAllTransactions () {
-  const { error } = await sb.from('transactions').delete().neq('id', '')
+  // Hanya hapus transaksi yang dicatat oleh apotek ini sendiri
+  const { error } = await sb
+    .from('transactions')
+    .delete()
+    .eq('pharmacist_user_id', currentUserId)
   if (error) console.error('clearAllTransactions:', error)
 }
 
 // ════════════════════════════════════════════════
 //  RULES ENGINE
+//  Cek limit dari seluruh transaksi global (lintas apotek)
 // ════════════════════════════════════════════════
 async function checkRules (nik, medicineId, targetQty) {
   const inv = await getInventory()
@@ -203,13 +269,19 @@ async function checkRules (nik, medicineId, targetQty) {
   if (!med)                   return { allowed: false, type: 'error', reason: 'Obat tidak terdaftar di sistem.' }
   if (med.stock < targetQty)  return { allowed: false, type: 'error', reason: `Stok ${med.name} hanya tersisa ${med.stock} pcs.` }
 
-  // Cek riwayat 7 hari terakhir
+  // ── Cek riwayat 7 hari terakhir dari SELURUH apotek (global) ──
+  // Kita cocokkan berdasarkan nama obat (medicine), bukan medicine_id,
+  // karena tiap apotek punya medicine_id sendiri-sendiri untuk obat yang sama.
+  // Gunakan nama obat yang sudah dinormalisasi (tanpa info stok di dalam nama).
+  const medNameClean = med.name   // gunakan nama lengkap, cocokkan exact
+
   const timeLimit = new Date(Date.now() - DAYS_LIMIT * 24 * 60 * 60 * 1000).toISOString()
+
   const { data: past, error } = await sb
     .from('transactions')
-    .select('quantity')
+    .select('quantity, pharmacy_email')
     .eq('nik', nik)
-    .eq('medicine_id', medicineId)
+    .eq('medicine', medNameClean)   // cocok nama obat lintas apotek
     .eq('status', 'SUCCESS')
     .gte('timestamp', timeLimit)
 
@@ -218,20 +290,27 @@ async function checkRules (nik, medicineId, targetQty) {
   const accumulatedQty = (past || []).reduce((sum, tx) => sum + tx.quantity, 0)
   const newTotal       = accumulatedQty + parseInt(targetQty)
 
+  // Buat deskripsi apotek mana saja yang sudah melayani
+  const pharmaciesServed = [...new Set((past || []).map(t => t.pharmacy_email).filter(Boolean))]
+
   if (newTotal > MAX_ITEMS) {
+    const pharmacyInfo = pharmaciesServed.length > 0
+      ? ` (Sudah beli di: ${pharmaciesServed.join(', ')})`
+      : ''
     return {
       allowed : false,
-      type    : 'abuse',
-      reason  : `Batas aturan terlampaui. Limit ${MAX_ITEMS} pcs per ${DAYS_LIMIT} hari. (Sudah beli ${accumulatedQty} + permintaan ${targetQty} = ${newTotal}). Indikasi Penyalahgunaan.`,
-      medName : med.name,
+      type    : 'blocked',
+      reason  : `NIK ${nik} sudah membeli ${accumulatedQty} pcs ${medNameClean} dalam 7 hari terakhir${pharmacyInfo}. Batas maksimal ${MAX_ITEMS} pcs.`,
+      medName : medNameClean,
+      med,
     }
   }
 
-  return { allowed: true, type: 'success', medName: med.name, med }
+  return { allowed: true, type: 'ok', medName: medNameClean, med }
 }
 
 // ════════════════════════════════════════════════
-//  UI HELPERS
+//  ALERT UI
 // ════════════════════════════════════════════════
 function showAlert (type, title, message) {
   const container = document.getElementById('alertContainer')
@@ -294,7 +373,7 @@ function setupForms () {
     if (ruleCheck.allowed) {
       const newStock = ruleCheck.med.stock - quantity
       await updateInventoryStock(medicineId, newStock)
-      showAlert('success', 'Transaksi Valid', `KTP ${nik} sukses membeli ${quantity} ${ruleCheck.medName}. Stok berhasil dipotong.`)
+      showAlert('success', 'Transaksi Valid', `KTP ${nik} sukses membeli ${quantity} pcs ${ruleCheck.medName}. Stok apotek ini berhasil dipotong.`)
       posForm.reset()
     } else {
       showAlert('danger', 'Transaksi Diblokir!', ruleCheck.reason)
@@ -311,7 +390,7 @@ function setupForms () {
       e.preventDefault()
       const name  = document.getElementById('newMedicineName').value.trim()
       const stock = parseInt(document.getElementById('newMedicineStock').value)
-      const item  = { id: 'inv-' + Math.random().toString(36).substr(2, 9), name, stock }
+      const item  = { id: 'inv-' + currentUserId.substr(0,8) + '-' + Math.random().toString(36).substr(2, 5), name, stock }
 
       const submitBtn = invForm.querySelector('button[type="submit"]')
       setLoading(submitBtn, true, '<i data-lucide="plus-circle"></i> Tambah ke Inventori')
@@ -324,12 +403,12 @@ function setupForms () {
     })
   }
 
-  // ── Hapus Riwayat ──
+  // ── Hapus Riwayat (hanya transaksi dari apotek ini) ──
   document.getElementById('btn-clear-history').addEventListener('click', async () => {
-    if (!confirm('Yakin hapus semua riwayat transaksi?')) return
+    if (!confirm('Yakin hapus semua riwayat transaksi yang dicatat oleh apotek ini?')) return
     await clearAllTransactions()
     await renderTables()
-    showAlert('success', 'Berhasil', 'Seluruh riwayat transaksi telah dihapus.')
+    showAlert('success', 'Berhasil', 'Riwayat transaksi apotek ini telah dihapus.')
   })
 
   // ── Inventori table actions (delegasi event) ──
@@ -410,6 +489,8 @@ async function syncInventoryUI () {
 
 // ════════════════════════════════════════════════
 //  RENDER TABEL HISTORY & LOG BLOKIR
+//  Menampilkan transaksi GLOBAL (semua apotek)
+//  dengan kolom tambahan: apotek pencatat
 // ════════════════════════════════════════════════
 async function renderTables (searchQuery = '') {
   const transactions  = await getTransactions(searchQuery)
@@ -420,18 +501,23 @@ async function renderTables (searchQuery = '') {
   if (alertsTbody)  alertsTbody.innerHTML  = ''
 
   if (transactions.length === 0) {
-    if (historyTbody) historyTbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#94a3b8;">Belum ada data transaksi</td></tr>'
-    if (alertsTbody)  alertsTbody.innerHTML  = '<tr><td colspan="5" style="text-align:center;color:#94a3b8;">Belum ada log pelanggaran</td></tr>'
+    if (historyTbody) historyTbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#94a3b8;">Belum ada data transaksi</td></tr>'
+    if (alertsTbody)  alertsTbody.innerHTML  = '<tr><td colspan="6" style="text-align:center;color:#94a3b8;">Belum ada log pelanggaran</td></tr>'
     return
   }
 
   transactions.forEach(tx => {
-    const dateStr   = new Date(tx.timestamp).toLocaleString('id-ID')
-    const isSuccess = tx.status === 'SUCCESS'
+    const dateStr     = new Date(tx.timestamp).toLocaleString('id-ID')
+    const isSuccess   = tx.status === 'SUCCESS'
+    const pharmacyTag = tx.pharmacy_email
+      ? `<span style="font-size:0.7rem;color:var(--text-muted);">${tx.pharmacy_email}</span>`
+      : '—'
+    const isMine      = tx.pharmacist_user_id === currentUserId
 
     const tr = document.createElement('tr')
+    tr.style.background = isMine ? '' : '#fafbff'   // warna berbeda untuk transaksi apotek lain
     tr.innerHTML = `
-      <td>${dateStr}</td>
+      <td>${dateStr}<br>${pharmacyTag}</td>
       <td><strong>${tx.nik}</strong></td>
       <td>${tx.medicine}</td>
       <td>${tx.quantity}</td>
@@ -440,8 +526,9 @@ async function renderTables (searchQuery = '') {
 
     if (!isSuccess) {
       const trAlert = document.createElement('tr')
+      trAlert.style.background = isMine ? '' : '#fafbff'
       trAlert.innerHTML = `
-        <td>${dateStr}</td>
+        <td>${dateStr}<br>${pharmacyTag}</td>
         <td><strong>${tx.nik}</strong></td>
         <td>${tx.medicine}</td>
         <td>${tx.quantity}</td>

@@ -1,5 +1,5 @@
 // ════════════════════════════════════════════════
-//  APOGUARD — script.js
+//  pharmaWatch — script.js
 // ════════════════════════════════════════════════
 
 const SUPABASE_URL      = 'https://spavhlrmpakdnrqvkhss.supabase.co'

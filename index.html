@@ -202,6 +202,14 @@
                                         <input type="number" id="newMedicineStock" required min="0" value="0">
                                     </div>
                                 </div>
+                                <div class="form-group" style="flex:1;">
+                                    <label for="newMedicineMaxPurchase">Batas Maks Beli (pcs/7hr)</label>
+                                    <div class="input-with-icon">
+                                        <i data-lucide="shield-check"></i>
+                                        <input type="number" id="newMedicineMaxPurchase" required min="1" value="2">
+                                    </div>
+                                    <small>Maks pembelian per NIK dalam 7 hari</small>
+                                </div>
                             </div>
                             <div class="form-actions" style="margin-top:16px;">
                                 <button type="submit" class="btn btn-primary">
@@ -212,13 +220,20 @@
                     </div>
                 </div>
                 <div class="card">
-                    <div class="card-header">
-                        <h3>Data Stok Inventori</h3>
-                        <p>Sistem akan otomatis memotong stok saat transaksi kasir divalidasi.</p>
+                    <div class="card-header flex-between">
+                        <div>
+                            <h3>Data Stok Inventori</h3>
+                            <p>Sistem akan otomatis memotong stok saat transaksi kasir divalidasi.</p>
+                        </div>
+                        <div class="input-with-icon" style="margin-top:8px;">
+                            <i data-lucide="search"></i>
+                            <input type="text" id="searchInventory" placeholder="Cari nama obat..."
+                                style="padding:8px 16px 8px 36px;font-size:0.8rem;height:auto;">
+                        </div>
                     </div>
                     <div class="table-responsive">
                         <table class="data-table">
-                            <thead><tr><th>Nama Obat</th><th>Sisa Stok (Pcs)</th><th>Aksi</th></tr></thead>
+                            <thead><tr><th>Nama Obat</th><th>Sisa Stok (Pcs)</th><th>Batas Maks Beli</th><th>Aksi</th></tr></thead>
                             <tbody id="inventoryTableBody"></tbody>
                         </table>
                     </div>
